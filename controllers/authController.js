@@ -175,7 +175,7 @@ const login = async (req, res, next) => {
 };
 
 
-///
+
 async function changePassword(req, res, next) {
     try {
         const email = req.body.email;
@@ -233,104 +233,77 @@ async function forgotPassword(req, res, next) {
 
     try {
         const userEmail = req.body.email;
-        const newPassword = req.body.password;
-
         const token = generateSixDigitToken();
-        const expirationTime = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes expiration
+        const expirationTime = new Date(Date.now() + 2 * 60 * 1000); // 2 min
 
         const user = await UserModel.findOne({ email: userEmail });
 
         if (!user) {
-            return res.status(404).json({
-                message: "No user found with this email address",
-            });
+            return res.status(404).json({ message: "No user found with this email address" });
         }
 
         let transporter = nodemailer.createTransport({
-            host: "smtp.gmail.com",
-            port: 465,
-            secure: true,
+            service: "gmail",
             auth: {
-                type: "OAuth2",
                 user: process.env.USER, 
-                accessToken: process.env.PASS,
+                pass: process.env.PASS,
             },
         });
 
         const mail = {
-            from: "backendtesting10",
+            from: process.env.USER,
             to: userEmail,
             subject: "Password Reset Request",
-            text: ` (${token})   You have requested a password reset. Click on the following link to reset your password: http://localhost:2000/change-forgotpassword?token=${token}`,
+            text: `(${token}) You have requested a password reset. Click the link to reset: http://localhost:2000/change-forgotpassword?token=${token}`,
         };
 
-        const emailResponse = await transporter.sendMail(mail);
+        await transporter.sendMail(mail);
 
-        res.status(200).json({
-            message: "Password reset email sent successfully",
-        });
-
-        // Save the token and expiration time to the database
         await TokenModel.create({ token, userId: user._id, email: userEmail, expirationTime });
+
+        res.status(200).json({ message: "Password reset email sent successfully" });
 
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Unknown error occurred",
-            error: error.message,
-        });
+        return res.status(500).json({ message: "Unknown error occurred", error: error.message });
     }
 }
 
-////////
+
 async function changeforgetpass(req, res, next) {
     try {
         const userEmail = req.body.email;
         const newPassword = req.body.password;
         const token = req.body.token;
 
-        const tokenData = await TokenModel.findOne({ email: userEmail });
+        const tokenData = await TokenModel.findOne({ email: userEmail, token: token });
 
         if (!tokenData) {
-            return res.status(404).json({
-                message: "Incorrect Token",
-            });
+            return res.status(404).json({ message: "Incorrect Token" });
         }
 
         const now = new Date();
-        const tokenExpirationTime = new Date(tokenData.expirationTime);
-
-        if (now > tokenExpirationTime) {
-            return res.status(401).json({
-                message: "Token has expired",
-            });
+        if (now > new Date(tokenData.expirationTime)) {
+            return res.status(401).json({ message: "Token has expired" });
         }
 
-        // Token is valid, update the user's password
-        const updateResponse = await UserModel.updateOne({ email: userEmail }, { password: newPassword });
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-         if(updateResponse){
-            res.status(200).json({
-            message: "Password reset successfully",
-        })}
-        else{
-            res.status(200).json({
-                message: "Password reset Was not successfully",
-                
-            })
+        const updateResponse = await UserModel.updateOne({ email: userEmail }, { password: hashedPassword });
+
+        if (updateResponse.modifiedCount > 0) {
+            res.status(200).json({ message: "Password reset successfully" });
+        } else {
+            res.status(400).json({ message: "Password reset was not successful" });
         }
+
+        await TokenModel.deleteOne({ _id: tokenData._id });
 
     } catch (error) {
         console.error(error);
-        return res.status(500).json({
-            message: "Unknown error occurred",
-            error: error.message,
-        });
+        return res.status(500).json({ message: "Unknown error occurred", error: error.message });
     }
 }
-
-
-
 
 
 function findbyid(req, res, next) {
